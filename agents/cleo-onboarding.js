@@ -47,54 +47,44 @@ function getEmailTransport() {
 }
 
 // ─────────────────────────────────────────────
-// Scrape Instagram account via Apify
-// Used to analyze client's own account + competitors.
+// Scrape Instagram account via RapidAPI (FREE tier)
+// Same API used by Scout — free tier: 500 req/month.
+// Cleo scrapes client + up to 3 competitors on each onboarding = ~4 calls per client.
+// At ~10 new clients/month that's 40 calls — well within the 500 free limit.
+//
+// Previous: Apify ($49/month). Now: RapidAPI free tier ($0/month).
 // ─────────────────────────────────────────────
 
 async function scrapeInstagramAccount(username) {
-  if (!process.env.APIFY_API_KEY) {
-    console.warn('[cleo] APIFY_API_KEY not set — skipping IG scrape');
+  if (!process.env.RAPIDAPI_KEY) {
+    console.warn('[cleo] RAPIDAPI_KEY not set — skipping IG scrape');
     return [];
   }
 
   try {
-    const runResp = await axios.post(
-      'https://api.apify.com/v2/acts/apify~instagram-scraper/runs',
-      { usernames: [username.replace('@', '')], resultsLimit: 12, scrapeType: 'posts' },
-      { headers: { Authorization: `Bearer ${process.env.APIFY_API_KEY}`, 'Content-Type': 'application/json' }, timeout: 10000 }
+    const response = await axios.get(
+      'https://instagram-scraper-api2.p.rapidapi.com/v1/posts',
+      {
+        params: { username_or_id_or_url: username.replace('@', '') },
+        headers: {
+          'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+          'x-rapidapi-host': 'instagram-scraper-api2.p.rapidapi.com',
+        },
+        timeout: 10000,
+      }
     );
 
-    const runId = runResp.data?.data?.id;
-    if (!runId) return [];
-
-    // Poll for completion
-    let status = 'RUNNING', attempts = 0;
-    while (status === 'RUNNING' && attempts < 30) {
-      await new Promise(r => setTimeout(r, 5000));
-      const s = await axios.get(`https://api.apify.com/v2/actor-runs/${runId}`, {
-        headers: { Authorization: `Bearer ${process.env.APIFY_API_KEY}` }
-      });
-      status = s.data?.data?.status;
-      attempts++;
-    }
-
-    if (status !== 'SUCCEEDED') return [];
-
-    const results = await axios.get(
-      `https://api.apify.com/v2/actor-runs/${runId}/dataset/items`,
-      { headers: { Authorization: `Bearer ${process.env.APIFY_API_KEY}` }, params: { limit: 20 } }
-    );
-
-    return (results.data || []).map(p => ({
-      caption: (p.caption || '').substring(0, 400),
-      likes: p.likesCount || 0,
-      comments: p.commentsCount || 0,
-      type: p.type || 'Post',
-      url: p.url,
+    const items = response.data?.data?.items || [];
+    return items.slice(0, 12).map(post => ({
+      caption: (post.caption?.text || '').substring(0, 400),
+      likes: post.like_count || 0,
+      comments: post.comment_count || 0,
+      type: post.media_type === 2 ? 'Video' : 'Post',
+      url: `https://instagram.com/p/${post.code}`,
     }));
 
   } catch (err) {
-    console.error(`[cleo] Apify error for @${username}: ${err.message}`);
+    console.error(`[cleo] RapidAPI error for @${username}: ${err.message}`);
     return [];
   }
 }

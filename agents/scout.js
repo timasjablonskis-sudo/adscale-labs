@@ -101,14 +101,44 @@ async function scrapeTrends() {
 }
 
 // ─────────────────────────────────────────────
-// Scrape Competitor Instagram via Apify
-// Uses the apify/instagram-scraper actor to get recent posts
-// from competitor accounts stored in the knowledge base.
+// Scrape Competitor Instagram via RapidAPI (FREE tier)
+// Uses the "Instagram Scraper" API on RapidAPI — free tier gives 500 calls/month.
+// At 5 competitors × daily = 150 calls/month, well within the free limit.
+//
+// Sign up at rapidapi.com → search "Instagram Scraper" → subscribe to free tier.
+// Set RAPIDAPI_KEY in .env. If not set, this step is skipped gracefully.
+//
+// Previous: Apify ($49/month). Now: RapidAPI free tier ($0/month).
 // ─────────────────────────────────────────────
 
+async function scrapeInstagramPosts(username) {
+  // Uses the instagram-scraper-api2 endpoint on RapidAPI (free tier: 500 req/month)
+  const response = await axios.get(
+    'https://instagram-scraper-api2.p.rapidapi.com/v1/posts',
+    {
+      params: { username_or_id_or_url: username.replace('@', '') },
+      headers: {
+        'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+        'x-rapidapi-host': 'instagram-scraper-api2.p.rapidapi.com',
+      },
+      timeout: 10000,
+    }
+  );
+
+  const items = response.data?.data?.items || [];
+  return items.slice(0, 6).map(post => ({
+    username,
+    caption: (post.caption?.text || '').substring(0, 500),
+    likes: post.like_count || 0,
+    comments: post.comment_count || 0,
+    url: `https://instagram.com/p/${post.code}`,
+    type: post.media_type === 2 ? 'Video' : 'Post',
+  }));
+}
+
 async function scrapeCompetitorInstagram() {
-  if (!process.env.APIFY_API_KEY) {
-    console.warn('[scout] APIFY_API_KEY not set — skipping Instagram scrape');
+  if (!process.env.RAPIDAPI_KEY) {
+    console.warn('[scout] RAPIDAPI_KEY not set — skipping Instagram scrape');
     return [];
   }
 
@@ -118,75 +148,19 @@ async function scrapeCompetitorInstagram() {
     return [];
   }
 
-  const usernames = competitors.map(c => c.replace('@', ''));
-
-  try {
-    // Start the Apify Instagram scraper actor
-    const runResp = await axios.post(
-      'https://api.apify.com/v2/acts/apify~instagram-scraper/runs',
-      {
-        usernames,
-        resultsLimit: 5, // 5 posts per competitor (weekly: 10 is fine for trends)
-        scrapeType: 'posts',
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.APIFY_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 10000,
-      }
-    );
-
-    const runId = runResp.data?.data?.id;
-    if (!runId) throw new Error('No run ID returned from Apify');
-
-    console.log(`[scout] Apify run started: ${runId}. Waiting for completion...`);
-
-    // Poll for completion (Apify runs are async — typically 30-120 seconds)
-    let status = 'RUNNING';
-    let attempts = 0;
-    while (status === 'RUNNING' && attempts < 30) {
-      await new Promise(r => setTimeout(r, 5000)); // Wait 5 seconds between polls
-      const statusResp = await axios.get(
-        `https://api.apify.com/v2/actor-runs/${runId}`,
-        { headers: { Authorization: `Bearer ${process.env.APIFY_API_KEY}` } }
-      );
-      status = statusResp.data?.data?.status;
-      attempts++;
+  const allPosts = [];
+  for (const account of competitors.slice(0, 5)) {
+    try {
+      const posts = await scrapeInstagramPosts(account);
+      allPosts.push(...posts);
+      console.log(`[scout] Scraped ${posts.length} posts from ${account}`);
+    } catch (err) {
+      console.warn(`[scout] Could not scrape ${account}: ${err.message}`);
     }
-
-    if (status !== 'SUCCEEDED') {
-      throw new Error(`Apify run did not succeed (status: ${status})`);
-    }
-
-    // Fetch the results
-    const resultsResp = await axios.get(
-      `https://api.apify.com/v2/actor-runs/${runId}/dataset/items`,
-      {
-        headers: { Authorization: `Bearer ${process.env.APIFY_API_KEY}` },
-        params: { limit: 50 },
-      }
-    );
-
-    const posts = resultsResp.data || [];
-    console.log(`[scout] Apify returned ${posts.length} Instagram posts`);
-
-    // Format posts for Claude analysis
-    return posts.map(post => ({
-      username: post.ownerUsername || post.username,
-      caption: (post.caption || post.text || '').substring(0, 500),
-      likes: post.likesCount || 0,
-      comments: post.commentsCount || 0,
-      timestamp: post.timestamp,
-      url: post.url,
-      type: post.type || 'Post',
-    }));
-
-  } catch (err) {
-    console.error(`[scout] Apify scrape error: ${err.message}`);
-    return [];
   }
+
+  console.log(`[scout] Total: ${allPosts.length} competitor posts fetched`);
+  return allPosts;
 }
 
 // ─────────────────────────────────────────────
