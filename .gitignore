@@ -1,0 +1,11 @@
+node_modules/
+.env
+data/
+*.db
+*.db-shm
+*.db-wal
+dashboard/.next/
+dashboard/node_modules/
+dashboard/.env.local
+.DS_Store
+*.log

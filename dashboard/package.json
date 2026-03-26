@@ -1,0 +1,30 @@
+{
+  "name": "adscale-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@hello-pangea/dnd": "^16.6.0",
+    "better-sqlite3": "^12.8.0",
+    "lucide-react": "^0.372.0",
+    "next": "14.2.3",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "recharts": "^2.12.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.4.0"
+  }
+}

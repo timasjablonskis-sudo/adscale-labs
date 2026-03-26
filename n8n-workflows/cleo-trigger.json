@@ -1,0 +1,100 @@
+{
+  "name": "Cleo — Stripe + Onboarding Webhooks",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stripe-payment",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "c3d4e5f6-0003-0003-0003-000000000001",
+      "name": "Webhook — Stripe Payment",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "onboarding-form",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "c3d4e5f6-0003-0003-0003-000000000002",
+      "name": "Webhook — Onboarding Form",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 420]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ADSCALE_SERVER_URL }}/webhooks/stripe",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "stripe-signature",
+              "value": "={{ $json.headers['stripe-signature'] || '' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "c3d4e5f6-0003-0003-0003-000000000003",
+      "name": "Forward to Cleo — Stripe",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ADSCALE_SERVER_URL }}/webhooks/onboarding",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Tally-Signature",
+              "value": "={{ $json.headers['x-tally-signature'] || '' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "c3d4e5f6-0003-0003-0003-000000000004",
+      "name": "Forward to Cleo — Onboarding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 420]
+    }
+  ],
+  "connections": {
+    "Webhook — Stripe Payment": {
+      "main": [
+        [{ "node": "Forward to Cleo — Stripe", "type": "main", "index": 0 }]
+      ]
+    },
+    "Webhook — Onboarding Form": {
+      "main": [
+        [{ "node": "Forward to Cleo — Onboarding", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1" },
+  "id": "adscale-cleo-trigger-v1"
+}
