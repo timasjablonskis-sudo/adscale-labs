@@ -112,27 +112,57 @@ async function scrapeTrends() {
 // ─────────────────────────────────────────────
 
 async function scrapeInstagramPosts(username) {
-  // Uses the instagram-scraper-api2 endpoint on RapidAPI (free tier: 500 req/month)
-  const response = await axios.get(
-    'https://instagram-scraper-api2.p.rapidapi.com/v1/posts',
-    {
-      params: { username_or_id_or_url: username.replace('@', '') },
-      headers: {
-        'x-rapidapi-key': process.env.RAPIDAPI_KEY,
-        'x-rapidapi-host': 'instagram-scraper-api2.p.rapidapi.com',
-      },
-      timeout: 10000,
-    }
+  // RapidAPI Instagram scraper — endpoint is configurable via .env so you can
+  // swap to any scraper API without touching this code.
+  //
+  // RAPIDAPI_IG_HOST  = the host header value  (e.g. "instagram-scraper-api2.p.rapidapi.com")
+  // RAPIDAPI_IG_URL   = the full endpoint URL   (e.g. "https://instagram-scraper-api2.p.rapidapi.com/v1/posts")
+  //
+  // The endpoint must accept a username param and return posts with caption/like_count fields.
+  // Most RapidAPI Instagram scrapers follow this convention — adjust RAPIDAPI_IG_RESPONSE_PATH
+  // if the posts array is nested differently (e.g. "items" vs "data.items" vs "result").
+
+  const host = process.env.RAPIDAPI_IG_HOST;
+  const url  = process.env.RAPIDAPI_IG_URL;
+
+  if (!host || !url) {
+    throw new Error('RAPIDAPI_IG_HOST and RAPIDAPI_IG_URL must be set in .env');
+  }
+
+  const response = await axios.get(url, {
+    params: { username_or_id_or_url: username.replace('@', ''), username: username.replace('@', '') },
+    headers: {
+      'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+      'x-rapidapi-host': host,
+    },
+    timeout: 10000,
+  });
+
+  // Try common response shapes used by different Instagram scraper APIs on RapidAPI.
+  // Most put posts in one of these locations — we try each until we find an array.
+  const body = response.data;
+  const items = (
+    body?.data?.items ||      // instagram-scraper-api2 shape
+    body?.items ||            // some scrapers return items at root
+    body?.data ||             // some return array directly under "data"
+    body?.result ||           // others use "result"
+    body?.posts ||            // others use "posts"
+    []
   );
 
-  const items = response.data?.data?.items || [];
+  if (!Array.isArray(items)) {
+    console.warn(`[scout] Unexpected response shape from ${host} — got:`, JSON.stringify(body).substring(0, 200));
+    return [];
+  }
+
   return items.slice(0, 6).map(post => ({
     username,
-    caption: (post.caption?.text || '').substring(0, 500),
-    likes: post.like_count || 0,
-    comments: post.comment_count || 0,
-    url: `https://instagram.com/p/${post.code}`,
-    type: post.media_type === 2 ? 'Video' : 'Post',
+    // Normalize caption across different API response formats
+    caption: (post.caption?.text || post.caption || post.text || post.description || '').toString().substring(0, 500),
+    likes: post.like_count || post.likes || post.likesCount || 0,
+    comments: post.comment_count || post.comments || post.commentsCount || 0,
+    url: post.url || (post.code ? `https://instagram.com/p/${post.code}` : ''),
+    type: (post.media_type === 2 || post.type === 'Video') ? 'Video' : 'Post',
   }));
 }
 

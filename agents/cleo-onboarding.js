@@ -62,25 +62,31 @@ async function scrapeInstagramAccount(username) {
   }
 
   try {
-    const response = await axios.get(
-      'https://instagram-scraper-api2.p.rapidapi.com/v1/posts',
-      {
-        params: { username_or_id_or_url: username.replace('@', '') },
-        headers: {
-          'x-rapidapi-key': process.env.RAPIDAPI_KEY,
-          'x-rapidapi-host': 'instagram-scraper-api2.p.rapidapi.com',
-        },
-        timeout: 10000,
-      }
-    );
+    const host = process.env.RAPIDAPI_IG_HOST;
+    const url  = process.env.RAPIDAPI_IG_URL;
 
-    const items = response.data?.data?.items || [];
+    if (!host || !url) {
+      console.warn('[cleo] RAPIDAPI_IG_HOST/URL not set — skipping IG scrape for', username);
+      return [];
+    }
+
+    const response = await axios.get(url, {
+      params: { username_or_id_or_url: username.replace('@', ''), username: username.replace('@', '') },
+      headers: { 'x-rapidapi-key': process.env.RAPIDAPI_KEY, 'x-rapidapi-host': host },
+      timeout: 10000,
+    });
+
+    const body = response.data;
+    const items = body?.data?.items || body?.items || body?.data || body?.result || body?.posts || [];
+
+    if (!Array.isArray(items)) return [];
+
     return items.slice(0, 12).map(post => ({
-      caption: (post.caption?.text || '').substring(0, 400),
-      likes: post.like_count || 0,
-      comments: post.comment_count || 0,
-      type: post.media_type === 2 ? 'Video' : 'Post',
-      url: `https://instagram.com/p/${post.code}`,
+      caption: (post.caption?.text || post.caption || post.text || '').toString().substring(0, 400),
+      likes: post.like_count || post.likes || post.likesCount || 0,
+      comments: post.comment_count || post.comments || post.commentsCount || 0,
+      type: (post.media_type === 2 || post.type === 'Video') ? 'Video' : 'Post',
+      url: post.url || (post.code ? `https://instagram.com/p/${post.code}` : ''),
     }));
 
   } catch (err) {
