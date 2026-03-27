@@ -30,7 +30,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.ADSCALE_SERVER_URL }}/webhooks/stripe",
+        "url": "https://srv1388391.hstgr.cloud/webhooks/stripe",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -57,7 +57,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.ADSCALE_SERVER_URL }}/webhooks/onboarding",
+        "url": "https://srv1388391.hstgr.cloud/webhooks/onboarding",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

@@ -21,15 +21,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.ADSCALE_SERVER_URL }}/run-agent/scout",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "url": "https://srv1388391.hstgr.cloud/run-agent/scout",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $env.INTERNAL_TOKEN }}"
+              "value": "Bearer 8c514f391c8ba0311c0dca9aae1b8030380486272940e43b2116e903efd40124"
             }
           ]
         },

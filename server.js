@@ -39,8 +39,12 @@ const PORT = process.env.PORT || 3001;
 // cors() allows the Next.js dashboard (on a different port) to fetch from this server.
 // ─────────────────────────────────────────────
 app.use(helmet());
+const allowedOrigins = process.env.DASHBOARD_ORIGIN
+  ? process.env.DASHBOARD_ORIGIN.split(',').map(o => o.trim())
+  : ['http://localhost:3000', 'http://localhost:3002'];
+
 app.use(cors({
-  origin: process.env.DASHBOARD_ORIGIN || ['http://localhost:3000', 'http://localhost:3002'],
+  origin: allowedOrigins,
   methods: ['GET', 'POST', 'PATCH', 'DELETE'],
 }));
 

@@ -18,7 +18,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.ADSCALE_SERVER_URL }}/webhooks/lead",
+        "url": "https://srv1388391.hstgr.cloud/webhooks/lead",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
