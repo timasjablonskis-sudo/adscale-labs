@@ -25,6 +25,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { fork } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 const { handleLeadWebhook, handleStripeWebhook, handleOnboardingWebhook, handleLeadResponse } = require('./lib/webhooks');
 const { registerJobs } = require('./lib/scheduler');
@@ -64,6 +65,14 @@ app.post(
 // ─────────────────────────────────────────────
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// ─────────────────────────────────────────────
+// Static: serve generated Brand Document PDFs/HTML
+// /data/pdfs/:filename → ./data/pdfs/:filename
+// ─────────────────────────────────────────────
+const PDF_DIR = path.join(__dirname, 'data', 'pdfs');
+if (!fs.existsSync(PDF_DIR)) fs.mkdirSync(PDF_DIR, { recursive: true });
+app.use('/data/pdfs', express.static(PDF_DIR));
 
 // ─────────────────────────────────────────────
 // Health Check
@@ -263,6 +272,56 @@ app.get('/api/clients', (req, res) => {
   try {
     const clients = db.prepare('SELECT * FROM clients ORDER BY onboarded_at DESC').all();
     res.json(clients);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/clients/:id — single client
+app.get('/api/clients/:id', (req, res) => {
+  try {
+    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(req.params.id);
+    if (!client) return res.status(404).json({ error: 'Client not found' });
+    res.json(client);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/clients/:id — update onboarding status + editable fields
+// Allowed status transitions (per state machine in brief):
+//   form_sent → form_submitted → brand_doc_generated → building → channel_1_live → fully_live
+const VALID_STATUSES = ['form_sent', 'form_submitted', 'brand_doc_generated', 'building', 'channel_1_live', 'fully_live'];
+const MANUAL_TRANSITION_STATUSES = ['building', 'channel_1_live', 'fully_live']; // require explicit action
+
+app.patch('/api/clients/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const allowed = ['onboarding_status', 'pricing_tier', 'monthly_rate', 'setup_fee', 'priority_launch_channel', 'brand_doc'];
+    const updates = {};
+
+    for (const key of allowed) {
+      if (key in req.body) updates[key] = req.body[key];
+    }
+
+    // Validate status transitions
+    if (updates.onboarding_status) {
+      if (!VALID_STATUSES.includes(updates.onboarding_status)) {
+        return res.status(400).json({
+          error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`,
+        });
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    const fields = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+    db.prepare(`UPDATE clients SET ${fields} WHERE id = ?`).run(...Object.values(updates), id);
+
+    const updated = db.prepare('SELECT * FROM clients WHERE id = ?').get(id);
+    res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
