@@ -330,29 +330,85 @@ The AdScale Labs Team`;
 async function handleOnboardingSubmission(fields, payload) {
   console.log('[cleo] Processing intake form submission...');
 
-  // ── Resolve client record ──
-  const email    = fields['owner_email'] || fields['email'] || fields['Email'] || '';
-  const clientId = fields['client_id'];
+  // ── Field normalizer: supports both new intake form keys AND old Tally form labels/IDs ──
+  // New form uses clean keys like 'owner_email', 'business_name'.
+  // Old 28-question Tally form uses labels like 'What is your billing email address?' and IDs like 'question_JRdkYK'.
+  function f(...keys) {
+    for (const k of keys) {
+      const v = fields[k];
+      if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+    }
+    return '';
+  }
 
+  // ── Resolve email and name (works with both form versions) ──
+  const email = f(
+    'owner_email', 'email', 'Email',
+    'What is your billing email address?', 'question_JRdkYK'
+  );
+  const ownerName = f(
+    'owner_name',
+    'What is your full name?', 'question_4kBNqA'
+  );
+  const businessName = f(
+    'business_name',
+    'What is your business/brand name?', 'question_jMb9pJ'
+  );
+  const clientId = f('client_id');
+
+  // ── Resolve client record ──
   let client = null;
   if (clientId) client = db.prepare('SELECT * FROM clients WHERE id = ?').get(parseInt(clientId));
   if (!client && email) client = db.prepare('SELECT * FROM clients WHERE email = ?').get(email);
 
   if (!client) {
-    // Edge case: form submitted before Stripe webhook
-    const name   = fields['owner_name'] || fields['business_name'] || 'Unknown';
+    const name = businessName || ownerName || 'Unknown';
     const result = db.prepare(`
       INSERT INTO clients (name, email, payment_tier, onboarding_status)
       VALUES (?, ?, 'Unknown', 'form_submitted')
     `).run(name, email);
     client = db.prepare('SELECT * FROM clients WHERE id = ?').get(result.lastInsertRowid);
-    console.log(`[cleo] Created client from form submission: ${name}`);
+    console.log(`[cleo] Created client from form submission: ${name} (${email})`);
+  } else {
+    // Update name if we have better data now
+    const betterName = businessName || ownerName;
+    if (betterName && client.name === 'Unknown') {
+      db.prepare('UPDATE clients SET name = ? WHERE id = ?').run(betterName, client.id);
+      client = db.prepare('SELECT * FROM clients WHERE id = ?').get(client.id);
+    }
+    // Update email if it was missing
+    if (email && !client.email) {
+      db.prepare('UPDATE clients SET email = ? WHERE id = ?').run(email, client.id);
+      client = db.prepare('SELECT * FROM clients WHERE id = ?').get(client.id);
+    }
   }
 
   // Update status → form_submitted
   if (!isDryRun) {
     db.prepare(`UPDATE clients SET onboarding_status = 'form_submitted' WHERE id = ?`).run(client.id);
   }
+
+  // ── Normalize remaining fields (new keys → old Tally fallbacks) ──
+  // These map to the new 26-question form structure, with old form fallbacks where possible.
+  fields.business_name        = fields.business_name        || businessName;
+  fields.owner_name           = fields.owner_name           || ownerName;
+  fields.owner_email          = fields.owner_email          || email;
+  fields.owner_phone          = f('owner_phone', 'business_phone_numbers');
+  fields.business_address     = f('business_address', 'locations', 'What is your website URL?');
+  fields.team_structure       = f('team_structure', 'How many people are on your team?', 'question_7Db9e0');
+  fields.monthly_lead_volume  = f('monthly_lead_volume');
+  fields.monthly_revenue_range = f('monthly_revenue_range', 'What is your approximate monthly revenue?', 'question_NVDBgO');
+  fields.biggest_pain         = f('biggest_pain', 'What are your primary marketing goals?', 'question_6keQ9Y', "What is your #1 priority for the next 90 days?", 'question_vBrxpl');
+  fields.why_signed_up        = f('why_signed_up', 'What does success look like for you in 6 months?', 'question_KoeBgX');
+  fields.treatment_menu       = f('treatment_menu');
+  fields.top_treatments       = f('top_treatments');
+  fields.active_promotions    = f('active_promotions');
+  fields.consultation_required_treatments = f('consultation_required_treatments');
+  fields.booking_system_platform = f('booking_system_platform', 'What CRM or marketing tools are you currently using?', 'question_AJKb0e');
+  fields.competitor_names     = f('competitor_names', 'Are there any competitors we should be aware of?', 'question_1Kk2x1');
+  fields.ai_tone              = f('ai_tone');
+  fields.ai_restrictions      = f('ai_restrictions');
+  fields.website_url          = f('website_url', 'What is your website URL?', 'question_2kBxZD');
 
   // ── Parse system scoping (Category D) ──
   const rawEngines   = fields['engines_selected']  || fields['engines']  || '';
