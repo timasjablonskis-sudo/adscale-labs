@@ -281,7 +281,8 @@ async function handleStripeEvent(paymentData, eventType) {
   const clientId = result.lastInsertRowid;
   console.log(`[cleo] Created client: ${clientName} (ID: ${clientId}, tier: ${paymentTier})`);
 
-  const formUrl = process.env.INTAKE_FORM_URL || 'https://tally.so/r/your_intake_form_id';
+  const dashboardBase = process.env.DASHBOARD_BASE_URL || 'https://adscale-labs.vercel.app';
+  const formUrl = `${dashboardBase}/onboard?client_id=${clientId}`;
 
   const emailBody = `Hi ${clientName.split(' ')[0]},
 
@@ -289,13 +290,14 @@ Welcome to AdScale Labs. Your payment is confirmed — let's get your AI Front D
 
 Complete your intake form (15–20 min). This gives us everything we need to configure your system:
 
-${formUrl}?client_id=${clientId}
+${formUrl}
 
 What happens next:
   1. You submit the form
-  2. We generate your Brand Document (your system blueprint) within minutes
+  2. We generate your AI Front Desk Blueprint within minutes
   3. You receive the blueprint by email — it shows exactly what we're building
-  4. Build begins immediately — first channel live within 48 hours
+  4. We schedule a quick 15-minute kickoff call to confirm the details
+  5. Build begins — first channel live within 48 hours
 
 Questions? Reply directly to this email.
 
@@ -612,8 +614,8 @@ Estimated time to full ROI: ${brandDoc.roi_projections.months_to_roi}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 What happens next:
-  1. Our build team reviews your blueprint (happening now)
-  2. ${priorityCh || 'Your priority channel'} goes live within 48 hours
+  1. We'll reach out to schedule your 15-minute kickoff call
+  2. ${priorityCh || 'Your priority channel'} goes live within 48 hours of the call
   3. Remaining channels roll out per the schedule above
   4. You receive a performance summary at end of week 2
 
@@ -634,6 +636,96 @@ The AdScale Labs Team`;
     }
   } else if (isDryRun) {
     console.log(`[DRY RUN] Would send confirmation email to ${client.email}`);
+  }
+
+  // ── Send internal kickoff brief to Timothy ──
+  // This is YOUR cheat sheet for the 15-min call before the build starts.
+  const internalTo = process.env.INTERNAL_BRIEF_EMAIL || process.env.SMTP_USER;
+  if (internalTo && !isDryRun) {
+    const biz      = brandDoc.client_profile.business_name || client.name;
+    const engines  = enginesActivated.join(', ') || 'None selected';
+    const addons   = addonsActivated.length > 0 ? addonsActivated.join(', ') : 'None';
+    const top      = (brandDoc.treatment_knowledge_base?.top_treatments || []).join(', ') || fields['top_treatments'] || 'Not specified';
+    const tone     = brandDoc.ai_personality?.tone || fields['ai_tone'] || 'Not specified';
+    const greeting = brandDoc.ai_personality?.greeting_template || 'Not generated';
+    const platform = brandDoc.system_blueprint?.booking_system?.platform || 'Not specified';
+    const channels = (brandDoc.system_blueprint?.channel_rollout_plan ? Object.values(brandDoc.system_blueprint.channel_rollout_plan).flat() : []).join(', ') || 'Not specified';
+
+    // Detect gaps — things that were blank or missing
+    const gaps = [];
+    if (!fields['treatment_menu']?.trim())      gaps.push('Treatment menu was empty — ask for their full price list on the call');
+    if (!fields['active_channels']?.trim())     gaps.push('No channels selected — confirm which channels they use on the call');
+    if (!fields['booking_system_platform']?.trim()) gaps.push('No booking system specified — ask what they use');
+    if (enginesActivated.length === 0)          gaps.push('No engines selected — walk them through the options on the call');
+    if (!priorityCh?.trim())                    gaps.push('No priority launch channel set — decide this on the call');
+    if (!fields['competitor_names']?.trim())    gaps.push('No competitors listed — ask for 2-3 local competitors');
+    if (!fields['instagram_handle']?.trim())    gaps.push('No Instagram handle — needed for Engine A setup');
+
+    // Suggested questions based on their specific answers
+    const questions = [];
+    if (fields['biggest_pain']) questions.push(`Their pain: "${fields['biggest_pain']}" — ask how long this has been happening and what it's cost them`);
+    if (fields['why_signed_up']) questions.push(`They signed up because: "${fields['why_signed_up']}" — reference this when confirming the build plan`);
+    if (enginesActivated.includes('Engine B: Omni Voice Receptionist') || enginesActivated.some(e => e.includes('Engine B'))) {
+      questions.push('Voice AI selected — confirm they want to forward their main business line or use a new number');
+    }
+    if (addonsActivated.some(a => a.includes('No-Show'))) {
+      questions.push('No-Show Recovery selected — ask what their current no-show rate is so we can set a baseline');
+    }
+    if (addonsActivated.some(a => a.includes('Botox Clock') || a.includes('Treatment Cycle'))) {
+      questions.push('Treatment Cycle Automation selected — confirm recall intervals (standard: 4 weeks, 3 months, 6 months)');
+    }
+    questions.push(`Confirm the ${priorityCh || 'priority channel'} is the right first channel and they have access credentials ready`);
+    questions.push('Ask if there are any upcoming promotions or events in the next 30 days the AI should know about');
+
+    const briefBody = `NEW CLIENT INTAKE — KICKOFF CALL BRIEF
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${biz.toUpperCase()}
+Contact: ${fields['owner_name'] || client.name} | ${client.email} | ${fields['owner_phone'] || fields['business_phone_numbers'] || 'No phone'}
+Revenue: ${fields['monthly_revenue_range'] || 'Not specified'} | Leads: ${fields['monthly_lead_volume'] || 'Not specified'}/mo
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WHAT WE'RE BUILDING
+  Engines:          ${engines}
+  Add-ons:          ${addons}
+  Reputation Engine: ${repEngine ? 'Yes' : 'No'}
+  Priority launch:  ${priorityCh || 'Not set — decide on call'}
+  Booking system:   ${platform}
+  Channels:         ${channels}
+  AI tone:          ${tone}
+
+TOP TREATMENTS
+  ${top}
+
+THEIR WORDS (use these on the call)
+  Pain point:   "${fields['biggest_pain'] || 'Not answered'}"
+  Why they bought: "${fields['why_signed_up'] || 'Not answered'}"
+
+AI GREETING CLAUDE GENERATED
+  "${greeting}"
+
+${gaps.length > 0 ? `GAPS TO FILL ON THE CALL (${gaps.length})
+${gaps.map(g => `  ⚠ ${g}`).join('\n')}
+
+` : '✓ No major gaps — intake was complete\n\n'}SUGGESTED QUESTIONS FOR THE CALL
+${questions.map((q, i) => `  ${i + 1}. ${q}`).join('\n')}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Dashboard: https://adscale-labs.vercel.app/clients
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+    try {
+      await getEmailTransport().sendMail({
+        from:    process.env.SMTP_FROM || process.env.SMTP_USER,
+        to:      internalTo,
+        subject: `[KICKOFF BRIEF] ${biz} — ${enginesActivated.length > 0 ? engines : 'Engines TBD'} | ${priorityCh || 'Priority TBD'}`,
+        text:    briefBody,
+      });
+      console.log(`[cleo] Internal kickoff brief sent to ${internalTo}`);
+    } catch (err) {
+      console.error(`[cleo] Failed to send internal brief: ${err.message}`);
+    }
+  } else if (isDryRun) {
+    console.log(`[DRY RUN] Would send internal kickoff brief to ${internalTo || process.env.SMTP_USER}`);
   }
 
   const summary = `Onboarding complete: ${brandDoc.client_profile.business_name || client.name}. ` +
