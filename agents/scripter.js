@@ -171,8 +171,21 @@ async function run() {
     return;
   }
 
-  if (!Array.isArray(scripts) || scripts.length === 0) {
-    const summary = 'Claude returned no scripts';
+  // Claude sometimes wraps the array in an object (e.g. {"scripts": [...]})
+  if (!Array.isArray(scripts)) {
+    const wrapped = scripts?.scripts || scripts?.data || Object.values(scripts || {}).find(v => Array.isArray(v));
+    if (Array.isArray(wrapped)) {
+      scripts = wrapped;
+    } else {
+      const summary = `Claude returned no scripts (got: ${JSON.stringify(scripts).substring(0, 100)})`;
+      console.error(`[scripter] ${summary}`);
+      logAgentRun('scripter', 'error', summary);
+      return;
+    }
+  }
+
+  if (scripts.length === 0) {
+    const summary = 'Claude returned an empty scripts array';
     console.error(`[scripter] ${summary}`);
     logAgentRun('scripter', 'error', summary);
     return;
